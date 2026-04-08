@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from app.config import settings
 from app.routes import alerts, predictions, shipments
 from app.routes.shipments import seed_database
-from app.database import AsyncSessionLocal, Shipment, Disruption
+from app.database import AsyncSessionLocal, Shipment, Disruption, Base, engine
 from sqlalchemy import select, update
 
 
@@ -21,6 +21,7 @@ api_app = FastAPI(
 )
 
 logger = logging.getLogger(__name__)
+_db_warning_shown = False
 
 # Allow all origins for development and broad client compatibility.
 api_app.add_middleware(
@@ -38,11 +39,13 @@ api_app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 
 @api_app.on_event("startup")
 async def startup_event():
-    """Seed database with sample data on startup if empty."""
+    """Ensure schema exists, then seed sample data if DB is reachable."""
     try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
         await seed_database()
     except Exception:
-        logger.exception("Skipping seed on startup because the database is unavailable.")
+        logger.warning("Skipping seed on startup because the database is unavailable.")
 
 
 @api_app.get("/health")
@@ -81,10 +84,18 @@ async def disconnect(sid):
 
 async def get_in_transit_shipments():
     """Fetch all in-transit shipments from database."""
-    async with AsyncSessionLocal() as session:
-        stmt = select(Shipment).where(Shipment.status == "in_transit")
-        result = await session.execute(stmt)
-        return result.scalars().all()
+    global _db_warning_shown
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(Shipment).where(Shipment.status == "in_transit")
+            result = await session.execute(stmt)
+            _db_warning_shown = False
+            return result.scalars().all()
+    except Exception:
+        if not _db_warning_shown:
+            logger.warning("Database unavailable. Live shipment simulation is paused until DB connectivity is restored.")
+            _db_warning_shown = True
+        return []
 
 
 def calculate_distance(lat1, lon1, lat2, lon2):
@@ -102,82 +113,76 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 async def emit_shipment_updates():
     """Emit updated shipment positions every 5 seconds."""
-    try:
-        shipments = await get_in_transit_shipments()
-        
-        for shipment in shipments:
-            # Simulate movement toward destination
-            distance = calculate_distance(
-                shipment.current_lat, shipment.current_lon,
-                shipment.dest_lat, shipment.dest_lon
-            )
-            
-            if distance > 0.1:  # If not at destination
-                # Move 1-2% of remaining distance per update
-                move_percentage = random.uniform(0.01, 0.02)
-                new_lat = shipment.current_lat + (shipment.dest_lat - shipment.current_lat) * move_percentage
-                new_lon = shipment.current_lon + (shipment.dest_lon - shipment.current_lon) * move_percentage
-                
-                # Update in database
-                async with AsyncSessionLocal() as session:
-                    stmt = update(Shipment).where(Shipment.id == shipment.id).values(
-                        current_lat=new_lat,
-                        current_lon=new_lon
-                    )
-                    await session.execute(stmt)
-                    await session.commit()
-                
-                # Emit update
-                await sio.emit('shipment_update', {
-                    'id': shipment.id,
-                    'tracking_id': shipment.tracking_id,
-                    'current_lat': new_lat,
-                    'current_lon': new_lon,
-                    'risk_score': shipment.risk_score,
-                    'status': shipment.status
-                })
-    except Exception as e:
-        print(f"Error emitting shipment updates: {e}")
+    shipments = await get_in_transit_shipments()
+
+    for shipment in shipments:
+        # Simulate movement toward destination
+        distance = calculate_distance(
+            shipment.current_lat, shipment.current_lon,
+            shipment.dest_lat, shipment.dest_lon
+        )
+
+        if distance > 0.1:  # If not at destination
+            # Move 1-2% of remaining distance per update
+            move_percentage = random.uniform(0.01, 0.02)
+            new_lat = shipment.current_lat + (shipment.dest_lat - shipment.current_lat) * move_percentage
+            new_lon = shipment.current_lon + (shipment.dest_lon - shipment.current_lon) * move_percentage
+
+            # Update in database
+            async with AsyncSessionLocal() as session:
+                stmt = update(Shipment).where(Shipment.id == shipment.id).values(
+                    current_lat=new_lat,
+                    current_lon=new_lon
+                )
+                await session.execute(stmt)
+                await session.commit()
+
+            # Emit update
+            await sio.emit('shipment_update', {
+                'id': shipment.id,
+                'tracking_id': shipment.tracking_id,
+                'current_lat': new_lat,
+                'current_lon': new_lon,
+                'risk_score': shipment.risk_score,
+                'status': shipment.status
+            })
 
 
 async def emit_risk_assessments():
     """Emit recalculated risk scores every 15 seconds."""
     global previous_risk_scores
-    try:
-        shipments = await get_in_transit_shipments()
-        
-        for shipment in shipments:
-            # Simulate risk score fluctuation (±10%)
-            change = random.uniform(-0.1, 0.1)
-            new_risk = max(0, min(1, shipment.risk_score + change))
-            
-            # Update in database
-            async with AsyncSessionLocal() as session:
-                stmt = update(Shipment).where(Shipment.id == shipment.id).values(risk_score=new_risk)
-                await session.execute(stmt)
-                await session.commit()
-            
-            # Emit risk assessment
-            await sio.emit('risk_assessment', {
+    shipments = await get_in_transit_shipments()
+
+    for shipment in shipments:
+        # Simulate risk score fluctuation (±10%)
+        change = random.uniform(-0.1, 0.1)
+        new_risk = max(0, min(1, shipment.risk_score + change))
+
+        # Update in database
+        async with AsyncSessionLocal() as session:
+            stmt = update(Shipment).where(Shipment.id == shipment.id).values(risk_score=new_risk)
+            await session.execute(stmt)
+            await session.commit()
+
+        # Emit risk assessment
+        await sio.emit('risk_assessment', {
+            'tracking_id': shipment.tracking_id,
+            'risk_score': new_risk,
+            'timestamp': datetime.now().isoformat()
+        })
+
+        # Check for risk threshold crossing (0.7)
+        old_score = previous_risk_scores.get(shipment.id, shipment.risk_score)
+        if old_score <= 0.7 < new_risk:
+            await sio.emit('alert', {
+                'type': 'high_risk',
                 'tracking_id': shipment.tracking_id,
                 'risk_score': new_risk,
+                'message': f'Risk score exceeded 0.7 threshold for {shipment.tracking_id}',
                 'timestamp': datetime.now().isoformat()
             })
-            
-            # Check for risk threshold crossing (0.7)
-            old_score = previous_risk_scores.get(shipment.id, shipment.risk_score)
-            if old_score <= 0.7 < new_risk:
-                await sio.emit('alert', {
-                    'type': 'high_risk',
-                    'tracking_id': shipment.tracking_id,
-                    'risk_score': new_risk,
-                    'message': f'Risk score exceeded 0.7 threshold for {shipment.tracking_id}',
-                    'timestamp': datetime.now().isoformat()
-                })
-            
-            previous_risk_scores[shipment.id] = new_risk
-    except Exception as e:
-        print(f"Error emitting risk assessments: {e}")
+
+        previous_risk_scores[shipment.id] = new_risk
 
 
 async def emit_random_disruptions():
@@ -218,7 +223,7 @@ async def emit_random_disruptions():
                     lon=location['lon'],
                     affected_radius_km=random.uniform(50, 300),
                     description=f"New {disruption_data['type'].replace('_', ' ')} in {location['name']}",
-                    expires_at=datetime.now().replace(hour=datetime.now().hour + 24)
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=24)
                 )
                 session.add(new_disruption)
                 await session.commit()
@@ -391,3 +396,12 @@ async def start_background_tasks():
 
 # ASGI entrypoint that serves both FastAPI routes and Socket.IO.
 app = socketio.ASGIApp(sio, other_asgi_app=api_app)
+
+# Ensure CORS headers are added at the actual served ASGI entrypoint.
+app = CORSMiddleware(
+    app,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

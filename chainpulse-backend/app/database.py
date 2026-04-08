@@ -1,4 +1,5 @@
 from datetime import datetime
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, Uuid, func
@@ -9,13 +10,27 @@ from app.config import settings
 
 
 def _normalize_async_database_url(database_url: str) -> str:
-	if database_url.startswith("postgresql+asyncpg://"):
-		return database_url
 	if database_url.startswith("postgresql://"):
-		return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-	if database_url.startswith("postgres://"):
-		return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
-	return database_url
+		database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+	elif database_url.startswith("postgres://"):
+		database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+
+	if not database_url.startswith("postgresql+asyncpg://"):
+		return database_url
+
+	parsed = urlparse(database_url)
+	query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+	normalized_pairs: list[tuple[str, str]] = []
+
+	for key, value in query_pairs:
+		# asyncpg expects `ssl`, while many managed Postgres URLs use `sslmode`.
+		if key == "sslmode":
+			normalized_pairs.append(("ssl", value))
+		else:
+			normalized_pairs.append((key, value))
+
+	normalized_query = urlencode(normalized_pairs)
+	return urlunparse(parsed._replace(query=normalized_query))
 
 
 DATABASE_URL = _normalize_async_database_url(settings.DATABASE_URL)
