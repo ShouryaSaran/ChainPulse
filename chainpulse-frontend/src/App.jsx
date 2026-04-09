@@ -39,7 +39,7 @@ const initialAlerts = [
   },
 ]
 
-function App() {
+function App({ onLogout }) {
   const { shipments: apiShipments, loading } = useShipments()
   
   // Local state for real-time updates
@@ -451,6 +451,14 @@ function App() {
               <BadgeCheck size={14} />
               <span>Hackathon Demo</span>
             </div>
+
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-full border border-gray-700/70 bg-white/5 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-dark-text transition hover:bg-white/10"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </header>

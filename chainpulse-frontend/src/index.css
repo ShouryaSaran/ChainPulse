@@ -6,6 +6,58 @@
 .glass-panel { backdrop-filter: blur(12px); background: rgba(45, 52, 73, 0.6); }
 .luminous-button { background: linear-gradient(135deg, #4cd6ff 0%, #007994 100%); }
 .pulse-glow { box-shadow: 0 0 15px rgba(76, 214, 255, 0.2); }
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #adc6ff;
+  border-radius: 50%;
+  position: relative;
+}
+
+.pulse-dot::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: inherit;
+  border-radius: 50%;
+  animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #adc6ff 0%, #4d8eff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+.bg-mesh {
+  background-image:
+    radial-gradient(at 0% 0%, rgba(77, 142, 255, 0.15) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(78, 222, 163, 0.1) 0px, transparent 50%);
+}
+
+.kinetic-pulse {
+  position: relative;
+}
+
+.kinetic-pulse::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  background: inherit;
+  border-radius: inherit;
+  z-index: -1;
+  animation: pulse-ring-soft 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
 html {
   @apply scroll-smooth;
 }
@@ -92,6 +144,16 @@ body {
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(.33); opacity: 0.8; }
+  80%, 100% { opacity: 0; transform: scale(3); }
+}
+
+@keyframes pulse-ring-soft {
+  0% { transform: scale(.95); opacity: 0.8; }
+  100% { transform: scale(1.15); opacity: 0; }
 }
 
 @keyframes marker-pulse {
