@@ -1,17 +1,40 @@
 import React, { useState } from 'react'
 import ShipmentCard from './ShipmentCard'
-import { Search, Plus, X } from 'lucide-react'
+import { Calendar, Search, Plus, X } from 'lucide-react'
 import { shipmentAPI } from '../../services/api'
 
-const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
+// Mock coordinates for common locations
+const locationCoords = {
+  'shanghai': { lat: 31.2304, lon: 121.4737 },
+  'rotterdam': { lat: 51.9225, lon: 4.4792 },
+  'singapore': { lat: 1.3521, lon: 103.8198 },
+  'los angeles': { lat: 34.0522, lon: -118.2437 },
+  'hong kong': { lat: 22.3193, lon: 114.1694 },
+  'hamburg': { lat: 53.5511, lon: 9.9937 },
+  'dubai': { lat: 25.2048, lon: 55.2708 },
+  'new york': { lat: 40.7128, lon: -74.0060 },
+  'sydney': { lat: -33.8688, lon: 151.2093 },
+}
+
+const getCoords = (city) => {
+  const key = city.trim().toLowerCase()
+  return locationCoords[key] || null
+}
+
+const supportedCities = Object.keys(locationCoords)
+  .map((city) => city[0].toUpperCase() + city.slice(1))
+  .join(', ')
+
+const AddShipmentModal = ({ isOpen, onClose, onSuccess, ownerEmail }) => {
   const [formData, setFormData] = useState({
-    tracking_id: '',
     origin: '',
     destination: '',
-    cargo_type: 'Electronics',
+    departure_date: new Date().toISOString().split('T')[0],
+    cargo_type: 'electronics',
     status: 'in_transit',
   })
   const [loading, setLoading] = useState(false)
+  const [formError, setFormError] = useState('')
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -21,18 +44,50 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
+    setFormError('')
     try {
-      await shipmentAPI.createShipment(formData)
+      const originCoords = getCoords(formData.origin)
+      const destCoords = getCoords(formData.destination)
+
+      if (!originCoords || !destCoords) {
+        setFormError(`Invalid origin or destination. Supported cities: ${supportedCities}.`)
+        return
+      }
+
+      if (formData.origin.trim().toLowerCase() === formData.destination.trim().toLowerCase()) {
+        setFormError('Origin and destination must be different cities.')
+        return
+      }
+      
+      const payload = {
+        origin: formData.origin,
+        destination: formData.destination,
+        origin_lat: originCoords.lat,
+        origin_lon: originCoords.lon,
+        dest_lat: destCoords.lat,
+        dest_lon: destCoords.lon,
+        cargo_type: formData.cargo_type,
+        status: formData.status,
+        current_lat: originCoords.lat,
+        current_lon: originCoords.lon,
+        risk_score: 0.1,
+        route_distance_km: 5000,
+        departure_date: new Date(formData.departure_date).toISOString(),
+      }
+      
+      await shipmentAPI.createShipment(payload, ownerEmail)
       setFormData({
-        tracking_id: '',
         origin: '',
         destination: '',
-        cargo_type: 'Electronics',
+        departure_date: new Date().toISOString().split('T')[0],
+        cargo_type: 'electronics',
         status: 'in_transit',
       })
       onClose()
       onSuccess?.()
     } catch (err) {
+      const detail = err?.response?.data?.detail
+      setFormError(Array.isArray(detail) ? detail.join(' ') : detail || 'Failed to create shipment.')
       console.error('Failed to create shipment:', err)
     } finally {
       setLoading(false)
@@ -43,7 +98,7 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-dark-card rounded-lg p-6 w-96 border border-gray-700/50">
+      <div className="bg-dark-card rounded-lg p-6 w-96 border border-gray-700/50 max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-dark-text">New Shipment</h2>
           <button
@@ -54,20 +109,7 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-dark-muted mb-1.5">Tracking ID</label>
-            <input
-              type="text"
-              name="tracking_id"
-              value={formData.tracking_id}
-              onChange={handleChange}
-              placeholder="e.g., CP-123456"
-              required
-              className="w-full bg-dark-bg border border-gray-700/50 rounded px-3 py-2 text-dark-text text-sm focus:outline-none focus:border-accent-blue"
-            />
-          </div>
-
+        <form onSubmit={handleSubmit} className="space-y-4 flex-1 overflow-y-auto pr-2">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-dark-muted mb-1.5">Origin</label>
@@ -80,6 +122,7 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
                 required
                 className="w-full bg-dark-bg border border-gray-700/50 rounded px-3 py-2 text-dark-text text-sm focus:outline-none focus:border-accent-blue"
               />
+              <p className="mt-1 text-[11px] text-dark-muted">Supported: Shanghai, Rotterdam, Singapore, Los Angeles, Hong Kong, Hamburg, Dubai, New York, Sydney</p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-dark-muted mb-1.5">Destination</label>
@@ -92,6 +135,22 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
                 required
                 className="w-full bg-dark-bg border border-gray-700/50 rounded px-3 py-2 text-dark-text text-sm focus:outline-none focus:border-accent-blue"
               />
+              <p className="mt-1 text-[11px] text-dark-muted">Supported: Shanghai, Rotterdam, Singapore, Los Angeles, Hong Kong, Hamburg, Dubai, New York, Sydney</p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-dark-muted mb-1.5">Departure Date</label>
+            <div className="relative">
+              <Calendar size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dark-muted" />
+              <input
+                type="date"
+                name="departure_date"
+                value={formData.departure_date}
+                onChange={handleChange}
+                required
+                className="w-full rounded border border-gray-700/50 bg-dark-bg py-2 pl-9 pr-3 text-sm text-dark-text focus:border-accent-blue focus:outline-none"
+              />
             </div>
           </div>
 
@@ -103,11 +162,10 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
               onChange={handleChange}
               className="w-full bg-dark-bg border border-gray-700/50 rounded px-3 py-2 text-dark-text text-sm focus:outline-none focus:border-accent-blue"
             >
-              <option>Electronics</option>
-              <option>Textiles</option>
-              <option>Chemicals</option>
-              <option>Food</option>
-              <option>Machinery</option>
+              <option value="electronics">Electronics</option>
+              <option value="perishable">Perishable</option>
+              <option value="hazmat">Hazmat</option>
+              <option value="general">General</option>
             </select>
           </div>
 
@@ -142,13 +200,19 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess }) => {
               {loading ? 'Creating...' : 'Create'}
             </button>
           </div>
+
+          {formError ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+              {formError}
+            </div>
+          ) : null}
         </form>
       </div>
     </div>
   )
 }
 
-const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment }) => {
+const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment, ownerEmail }) => {
   const [searchQuery, setSearchQuery] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
 
@@ -198,6 +262,7 @@ const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment }
               index={index}
               onSelect={() => onSelectShipment(shipment)}
               isSelected={selectedShipment?.id === shipment.id}
+              ownerEmail={ownerEmail}
             />
           ))
         )}
@@ -219,6 +284,7 @@ const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment }
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         onSuccess={handleAddSuccess}
+        ownerEmail={ownerEmail}
       />
     </div>
   )

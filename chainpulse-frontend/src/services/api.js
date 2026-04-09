@@ -7,19 +7,21 @@ const api = axios.create({
   timeout: 10000,
 })
 
+const ownerParams = (ownerEmail) => (ownerEmail ? { params: { owner_email: ownerEmail } } : undefined)
+
 export const shipmentAPI = {
-  getAll: () => api.get('/api/shipments'),
-  getByTrackingId: (trackingId) => api.get(`/api/shipments/${trackingId}`),
-  create: (shipment) => api.post('/api/shipments', shipment),
-  createShipment: (shipment) => api.post('/api/shipments', shipment),
-  updateStatus: (trackingId, data) => api.put(`/api/shipments/${trackingId}/status`, data),
-  delete: (trackingId) => api.delete(`/api/shipments/${trackingId}`),
-  getRoute: (trackingId) => api.get(`/api/shipments/${trackingId}/route`),
+  getAll: (ownerEmail) => api.get('/api/shipments', ownerParams(ownerEmail)),
+  getByTrackingId: (trackingId, ownerEmail) => api.get(`/api/shipments/${trackingId}`, ownerParams(ownerEmail)),
+  create: (shipment, ownerEmail) => api.post('/api/shipments', { ...shipment, owner_email: ownerEmail }),
+  createShipment: (shipment, ownerEmail) => api.post('/api/shipments', { ...shipment, owner_email: ownerEmail }),
+  updateStatus: (trackingId, data, ownerEmail) => api.put(`/api/shipments/${trackingId}/status`, data, ownerParams(ownerEmail)),
+  delete: (trackingId, ownerEmail) => api.delete(`/api/shipments/${trackingId}`, ownerParams(ownerEmail)),
+  getRoute: (trackingId, ownerEmail) => api.get(`/api/shipments/${trackingId}/route`, ownerParams(ownerEmail)),
 }
 
 export const predictionAPI = {
-  assess: (trackingId) => api.post('/api/predictions/assess', { shipment_id: trackingId }),
-  getDashboardStats: () => api.get('/api/predictions/dashboard-stats'),
+  assess: (trackingId, ownerEmail) => api.post('/api/predictions/assess', { shipment_id: trackingId }, ownerParams(ownerEmail)),
+  getDashboardStats: (ownerEmail) => api.get('/api/predictions/dashboard-stats', ownerParams(ownerEmail)),
 }
 
 export const disruptionAPI = {

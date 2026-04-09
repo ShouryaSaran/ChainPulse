@@ -7,12 +7,12 @@ import random
 import math
 import logging
 from datetime import datetime, timedelta, timezone
+from sqlalchemy import inspect, select, text, update
 
 from app.config import settings
 from app.routes import alerts, predictions, shipments
 from app.routes.shipments import seed_database
 from app.database import AsyncSessionLocal, Shipment, Disruption, Base, engine
-from sqlalchemy import select, update
 
 
 api_app = FastAPI(
@@ -22,6 +22,44 @@ api_app = FastAPI(
 
 logger = logging.getLogger(__name__)
 _db_warning_shown = False
+
+
+async def ensure_shipments_columns() -> None:
+    async with engine.begin() as conn:
+        def _ensure_shipments_schema(sync_conn):
+            inspector = inspect(sync_conn)
+            if not inspector.has_table("shipments"):
+                return
+
+            existing_columns = {column["name"] for column in inspector.get_columns("shipments")}
+            if sync_conn.dialect.name == "postgresql":
+                if "owner_email" not in existing_columns:
+                    sync_conn.execute(
+                        text(
+                            "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS owner_email VARCHAR(255) NOT NULL DEFAULT 'demo@chainpulse.local'"
+                        )
+                    )
+                if "departure_date" not in existing_columns:
+                    sync_conn.execute(
+                        text(
+                            "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS departure_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()"
+                        )
+                    )
+            else:
+                if "owner_email" not in existing_columns:
+                    sync_conn.execute(
+                        text(
+                            "ALTER TABLE shipments ADD COLUMN owner_email VARCHAR(255) NOT NULL DEFAULT 'demo@chainpulse.local'"
+                        )
+                    )
+                if "departure_date" not in existing_columns:
+                    sync_conn.execute(
+                        text(
+                            "ALTER TABLE shipments ADD COLUMN departure_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                        )
+                    )
+
+        await conn.run_sync(_ensure_shipments_schema)
 
 # Allow all origins for development and broad client compatibility.
 api_app.add_middleware(
@@ -43,6 +81,7 @@ async def startup_event():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        await ensure_shipments_columns()
         await seed_database()
     except Exception:
         logger.warning("Skipping seed on startup because the database is unavailable.")

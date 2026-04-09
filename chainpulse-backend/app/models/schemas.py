@@ -11,6 +11,7 @@ SeverityType = Literal["low", "medium", "high", "critical"]
 
 
 class ShipmentBase(BaseModel):
+    owner_email: str
     tracking_id: str
     origin: str
     destination: str
@@ -24,11 +25,13 @@ class ShipmentBase(BaseModel):
     current_lon: float
     risk_score: float = Field(ge=0.0, le=1.0)
     route_distance_km: float = 0.0
-    eta: datetime
+    departure_date: datetime
+    eta: datetime | None = None
 
 
 class ShipmentCreate(ShipmentBase):
-    pass
+    tracking_id: str | None = None
+    owner_email: str | None = None
 
 
 class ShipmentUpdate(BaseModel):
@@ -45,6 +48,7 @@ class ShipmentUpdate(BaseModel):
     current_lon: float | None = None
     risk_score: float | None = Field(default=None, ge=0.0, le=1.0)
     route_distance_km: float | None = None
+    departure_date: datetime | None = None
     eta: datetime | None = None
 
 

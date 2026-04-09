@@ -14,6 +14,12 @@ const LoginPage = () => {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
+    if (location.state?.oauthError) {
+      setError(location.state.oauthError)
+    }
+  }, [location.state])
+
+  useEffect(() => {
     if (session) {
       navigate('/dashboard', { replace: true })
     }
@@ -27,7 +33,7 @@ const LoginPage = () => {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
 

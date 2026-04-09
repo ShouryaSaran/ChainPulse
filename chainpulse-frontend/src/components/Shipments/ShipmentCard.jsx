@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { ArrowRight, Calendar, Zap } from 'lucide-react'
 import { predictionAPI } from '../../services/api'
 
-const ShipmentCard = ({ shipment, onSelect, isSelected, index = 0 }) => {
+const ShipmentCard = ({ shipment, onSelect, isSelected, index = 0, ownerEmail }) => {
   const [assessing, setAssessing] = useState(false)
   const [barReady, setBarReady] = useState(false)
 
@@ -40,11 +40,10 @@ const ShipmentCard = ({ shipment, onSelect, isSelected, index = 0 }) => {
 
   const getCargoTypeColor = (type) => {
     const types = {
-      'Electronics': 'bg-blue-900/30 text-accent-blue',
-      'Textiles': 'bg-purple-900/30 text-purple-400',
-      'Chemicals': 'bg-red-900/30 text-accent-red',
-      'Food': 'bg-green-900/30 text-accent-green',
-      'Machinery': 'bg-amber-900/30 text-accent-amber',
+      electronics: 'bg-blue-900/30 text-accent-blue',
+      perishable: 'bg-green-900/30 text-accent-green',
+      hazmat: 'bg-red-900/30 text-accent-red',
+      general: 'bg-gray-700/30 text-dark-muted',
     }
     return types[type] || 'bg-gray-700/30 text-dark-muted'
   }
@@ -53,7 +52,7 @@ const ShipmentCard = ({ shipment, onSelect, isSelected, index = 0 }) => {
     e.stopPropagation()
     setAssessing(true)
     try {
-      await predictionAPI.assess(shipment.tracking_id)
+      await predictionAPI.assess(shipment.tracking_id, ownerEmail)
       // Risk assessment completed
     } catch (err) {
       console.error('Failed to assess risk:', err)

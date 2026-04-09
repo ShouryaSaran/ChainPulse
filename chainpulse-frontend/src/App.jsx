@@ -9,6 +9,7 @@ import ToastStack from './components/Alerts/ToastStack'
 import DisruptionSimulator from './components/Simulator/DisruptionSimulator'
 import { useShipments } from './hooks/useShipments'
 import { shipmentAPI } from './services/api'
+import { useAuth } from './auth/AuthProvider'
 import { 
   initSocket, 
   onSocketStatus,
@@ -40,7 +41,9 @@ const initialAlerts = [
 ]
 
 function App({ onLogout }) {
-  const { shipments: apiShipments, loading } = useShipments()
+  const { user } = useAuth()
+  const ownerEmail = user?.email ?? null
+  const { shipments: apiShipments, loading } = useShipments(ownerEmail)
   
   // Local state for real-time updates
   const [shipments, setShipments] = useState([])
@@ -304,9 +307,10 @@ function App({ onLogout }) {
 
   // Sync API shipments to local state
   useEffect(() => {
-    if (apiShipments && apiShipments.length > 0) {
-      setShipments(apiShipments)
-    }
+    setShipments(apiShipments ?? [])
+    setSelectedShipment((currentSelected) =>
+      apiShipments?.some((shipment) => shipment.id === currentSelected?.id) ? currentSelected : null,
+    )
   }, [apiShipments])
 
   // Listen for shipment position updates
@@ -397,7 +401,7 @@ function App({ onLogout }) {
     if (selectedShipment) {
       const fetchRoute = async () => {
         try {
-          const response = await shipmentAPI.getRoute(selectedShipment.tracking_id)
+          const response = await shipmentAPI.getRoute(selectedShipment.tracking_id, ownerEmail)
           setRoutes([
             { waypoints: response.data.current_route },
             ...response.data.alternate_routes.map(route => ({
@@ -410,7 +414,7 @@ function App({ onLogout }) {
       }
       fetchRoute()
     }
-  }, [selectedShipment])
+  }, [selectedShipment, ownerEmail])
 
   return (
     <div className="min-h-screen bg-dark-bg text-dark-text">
@@ -465,7 +469,7 @@ function App({ onLogout }) {
 
       <main className="mx-auto grid max-w-[1800px] grid-cols-1 gap-4 px-4 pb-4 pt-20 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
         <section className="space-y-4 min-w-0">
-          <StatsBar />
+          <StatsBar ownerEmail={ownerEmail} />
 
           <div className="space-y-4">
             <div className="h-[64vh] min-h-[520px] animate-fade-in-up" style={{ animationDelay: '80ms' }}>
@@ -489,7 +493,7 @@ function App({ onLogout }) {
           </div>
         </section>
 
-        <aside className="space-y-4 min-w-0 xl:sticky xl:top-20 xl:max-h-[calc(100vh-5.5rem)] xl:overflow-y-auto">
+        <aside className="space-y-6 min-w-0 xl:sticky xl:top-20 xl:max-h-[calc(100vh-5.5rem)] xl:overflow-y-auto">
           <div className="rounded-lg border border-gray-700/50 bg-dark-card p-4">
             <button
               type="button"
@@ -506,10 +510,11 @@ function App({ onLogout }) {
               loading={loading}
               onSelectShipment={setSelectedShipment}
               selectedShipment={selectedShipment}
+              ownerEmail={ownerEmail}
             />
           </div>
 
-          <div className="h-52 animate-fade-in-up" style={{ animationDelay: '160ms' }}>
+          <div className="min-h-52 animate-fade-in-up" style={{ animationDelay: '160ms' }}>
             <AlertPanel
               alerts={alerts}
               onClearAll={clearAlerts}

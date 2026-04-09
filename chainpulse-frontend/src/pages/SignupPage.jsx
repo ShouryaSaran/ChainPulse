@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../auth/AuthProvider'
+import { COUNTRY_OPTIONS } from '../constants/countries'
 
 const roleOptions = [
   'Logistics Manager',
@@ -16,7 +17,10 @@ const SignupPage = () => {
 
   const [form, setForm] = useState({
     fullName: '',
+    companyName: '',
     email: '',
+    role: '',
+    country: '',
     password: '',
   })
   const [showPassword, setShowPassword] = useState(false)
@@ -32,7 +36,10 @@ const SignupPage = () => {
   const canSubmit = useMemo(
     () =>
       form.fullName.trim() &&
+      form.companyName.trim() &&
       form.email.trim() &&
+      form.role.trim() &&
+      form.country.trim() &&
       form.password.trim(),
     [form],
   )
@@ -53,9 +60,9 @@ const SignupPage = () => {
         emailRedirectTo: `${window.location.origin}/dashboard`,
         data: {
           full_name: form.fullName,
-          company_name: null,
-          country: null,
-          role: roleOptions[3],
+          company_name: form.companyName,
+          country: form.country,
+          role: form.role,
         },
       },
     })
@@ -77,7 +84,7 @@ const SignupPage = () => {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
 
@@ -88,8 +95,8 @@ const SignupPage = () => {
   }
 
   return (
-    <div className="relative h-screen overflow-hidden bg-surface font-body text-on-surface selection:bg-primary-container selection:text-white">
-      <header className="fixed top-0 z-50 w-full bg-gradient-to-b from-[#131b2e] to-transparent px-6 py-6 md:px-8">
+    <div className="relative min-h-screen overflow-x-hidden bg-surface font-body text-on-surface selection:bg-primary-container selection:text-white">
+      <header className="sticky top-0 z-50 w-full bg-gradient-to-b from-[#131b2e] to-[#131b2e]/85 px-6 py-6 backdrop-blur-sm md:px-8">
         <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between">
           <div className="text-2xl font-headline font-bold tracking-tighter text-primary">ChainPulse</div>
           <div className="flex items-center gap-4">
@@ -101,8 +108,8 @@ const SignupPage = () => {
         </div>
       </header>
 
-      <main className="flex h-full w-full">
-        <section className="relative hidden w-7/12 items-center justify-center overflow-hidden bg-surface-container-low p-20 lg:flex">
+      <main className="flex min-h-screen w-full flex-col lg:flex-row">
+        <section className="relative hidden w-7/12 items-start justify-center overflow-hidden bg-surface-container-low px-20 pb-20 pt-16 lg:flex">
           <div className="bg-mesh absolute inset-0 opacity-50"></div>
           <div className="relative z-10 w-full max-w-2xl">
             <div className="mb-12">
@@ -148,8 +155,8 @@ const SignupPage = () => {
           </div>
         </section>
 
-        <section className="flex w-full items-center justify-center overflow-y-auto bg-gradient-to-b from-[#0b1326] via-[#08122a] to-[#0b1326] px-6 lg:w-5/12 lg:px-16">
-          <div className="flex w-full max-w-[420px] flex-col py-20 lg:py-24">
+        <section className="flex w-full items-start justify-center overflow-y-auto bg-gradient-to-b from-[#0b1326] via-[#08122a] to-[#0b1326] px-6 pb-16 pt-6 lg:w-5/12 lg:px-16 lg:pt-10">
+          <div className="flex w-full max-w-[420px] flex-col pb-10 pt-2 lg:py-8">
             <div className="mb-10 text-center lg:text-left">
               <h2 className="mb-3 text-4xl font-headline font-extrabold tracking-tight text-white">Start Your Free Trial</h2>
               <p className="text-sm font-label tracking-wide text-on-surface-variant">Enter your details to begin your 14-day premium trial.</p>
@@ -203,6 +210,48 @@ const SignupPage = () => {
                   onChange={onChange('email')}
                   className="w-full rounded-xl border border-outline-variant/15 bg-surface-container-lowest px-4 py-3.5 text-white placeholder:text-outline/50 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary"
                 />
+              </div>
+              <div>
+                <label className="mb-2 ml-1 block text-xs font-label uppercase tracking-wider text-on-surface-variant" htmlFor="companyName">Company Name</label>
+                <input
+                  id="companyName"
+                  type="text"
+                  placeholder="Acme Logistics"
+                  required
+                  value={form.companyName}
+                  onChange={onChange('companyName')}
+                  className="w-full rounded-xl border border-outline-variant/15 bg-surface-container-lowest px-4 py-3.5 text-white placeholder:text-outline/50 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="mb-2 ml-1 block text-xs font-label uppercase tracking-wider text-on-surface-variant" htmlFor="role">Roles</label>
+                <select
+                  id="role"
+                  required
+                  value={form.role}
+                  onChange={onChange('role')}
+                  className="w-full rounded-xl border border-outline-variant/15 bg-surface-container-lowest px-4 py-3.5 text-white outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary"
+                >
+                  <option value="" disabled>Select your role</option>
+                  {roleOptions.map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 ml-1 block text-xs font-label uppercase tracking-wider text-on-surface-variant" htmlFor="country">Country</label>
+                <select
+                  id="country"
+                  required
+                  value={form.country}
+                  onChange={onChange('country')}
+                  className="w-full rounded-xl border border-outline-variant/15 bg-surface-container-lowest px-4 py-3.5 text-white outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-primary"
+                >
+                  <option value="" disabled>Select your country</option>
+                  {COUNTRY_OPTIONS.map((country) => (
+                    <option key={country} value={country}>{country}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="mb-2 ml-1 block text-xs font-label uppercase tracking-wider text-on-surface-variant" htmlFor="password">Password</label>

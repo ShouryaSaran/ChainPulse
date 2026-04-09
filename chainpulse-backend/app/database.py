@@ -47,6 +47,7 @@ class Shipment(Base):
 	__tablename__ = "shipments"
 
 	id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+	owner_email: Mapped[str] = mapped_column(String(255), index=True, nullable=False, default="demo@chainpulse.local")
 	tracking_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
 	origin: Mapped[str] = mapped_column(String(120), nullable=False)
 	destination: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -60,6 +61,7 @@ class Shipment(Base):
 	current_lon: Mapped[float] = mapped_column(Float, nullable=False)
 	risk_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 	route_distance_km: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+	departure_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 	eta: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

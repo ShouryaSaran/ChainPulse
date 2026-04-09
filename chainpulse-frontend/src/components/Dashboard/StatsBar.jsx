@@ -15,14 +15,14 @@ const StatCard = ({ icon: Icon, label, value, subvalue, color, delay = 0 }) => {
   )
 }
 
-const StatsBar = () => {
+const StatsBar = ({ ownerEmail }) => {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await predictionAPI.getDashboardStats()
+        const response = await predictionAPI.getDashboardStats(ownerEmail)
         setStats(response.data)
       } catch (err) {
         console.error('Failed to fetch stats:', err)
@@ -34,7 +34,7 @@ const StatsBar = () => {
     fetchStats()
     const interval = setInterval(fetchStats, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [ownerEmail])
 
   if (loading || !stats) {
     return (

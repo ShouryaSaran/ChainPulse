@@ -2,7 +2,7 @@ import random
 from datetime import datetime
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.database import Disruption, Shipment, get_db
@@ -134,10 +134,13 @@ async def predict_shipment_delay(payload: PredictionRequest) -> PredictionRespon
 
 
 @router.post("/assess", response_model=AssessmentResponse)
-async def assess_shipment_risk(payload: PredictionRequest, db=Depends(get_db)):
+async def assess_shipment_risk(payload: PredictionRequest, owner_email: str | None = Query(default=None), db=Depends(get_db)):
     """Assess full risk for a shipment using ML model and live data."""
     # Fetch shipment
-    result = await db.execute(select(Shipment).where(Shipment.tracking_id == payload.shipment_id))
+    stmt = select(Shipment).where(Shipment.tracking_id == payload.shipment_id)
+    if owner_email:
+        stmt = stmt.where(Shipment.owner_email == owner_email)
+    result = await db.execute(stmt)
     shipment = result.scalar_one_or_none()
     if not shipment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shipment not found")
@@ -164,20 +167,31 @@ async def assess_shipment_risk(payload: PredictionRequest, db=Depends(get_db)):
 
 
 @router.get("/dashboard-stats", response_model=DashboardStats)
-async def get_dashboard_stats(db=Depends(get_db)):
+async def get_dashboard_stats(owner_email: str | None = Query(default=None), db=Depends(get_db)):
     """Get aggregate dashboard statistics."""
+    shipment_filters = []
+    if owner_email:
+        shipment_filters.append(Shipment.owner_email == owner_email)
+
     # Total shipments
-    total_result = await db.execute(select(func.count(Shipment.id)))
+    total_query = select(func.count(Shipment.id))
+    if shipment_filters:
+        total_query = total_query.where(*shipment_filters)
+    total_result = await db.execute(total_query)
     total_shipments = total_result.scalar() or 0
 
     # Shipments at risk
-    at_risk_result = await db.execute(
-        select(func.count(Shipment.id)).where(Shipment.status == "at_risk")
-    )
+    at_risk_query = select(func.count(Shipment.id)).where(Shipment.status == "at_risk")
+    if shipment_filters:
+        at_risk_query = at_risk_query.where(*shipment_filters)
+    at_risk_result = await db.execute(at_risk_query)
     at_risk = at_risk_result.scalar() or 0
 
     # Average risk score
-    avg_result = await db.execute(select(func.avg(Shipment.risk_score)))
+    avg_query = select(func.avg(Shipment.risk_score))
+    if shipment_filters:
+        avg_query = avg_query.where(*shipment_filters)
+    avg_result = await db.execute(avg_query)
     avg_risk_score = float(avg_result.scalar() or 0.0)
 
     # Active disruptions
@@ -187,9 +201,10 @@ async def get_dashboard_stats(db=Depends(get_db)):
     disruptions_active = active_result.scalar() or 0
 
     # Rerouted today (mock: count of shipments with "delayed" status)
-    rerouted_result = await db.execute(
-        select(func.count(Shipment.id)).where(Shipment.status == "delayed")
-    )
+    rerouted_query = select(func.count(Shipment.id)).where(Shipment.status == "delayed")
+    if shipment_filters:
+        rerouted_query = rerouted_query.where(*shipment_filters)
+    rerouted_result = await db.execute(rerouted_query)
     rerouted_today = rerouted_result.scalar() or 0
 
     return DashboardStats(
