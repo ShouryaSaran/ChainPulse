@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
+import { createPortal } from 'react-dom'
 import ShipmentCard from './ShipmentCard'
-import { Calendar, Search, Plus, X } from 'lucide-react'
+import RiskAssessmentModal from './RiskAssessmentModal'
+import { AlertTriangle, Calendar, Search, Plus, X } from 'lucide-react'
 import { shipmentAPI } from '../../services/api'
 
 // Mock coordinates for common locations
@@ -96,9 +98,9 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess, ownerEmail }) => {
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-dark-card rounded-lg p-6 w-96 border border-gray-700/50 max-h-[90vh] flex flex-col">
+  return createPortal(
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm">
+      <div className="bg-dark-card rounded-lg p-6 w-full max-w-md border border-gray-700/50 max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-dark-text">New Shipment</h2>
           <button
@@ -208,13 +210,66 @@ const AddShipmentModal = ({ isOpen, onClose, onSuccess, ownerEmail }) => {
           ) : null}
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
-const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment, ownerEmail }) => {
+const DeleteShipmentModal = ({ shipment, isDeleting, onCancel, onConfirm }) => {
+  if (!shipment) return null
+
+  return createPortal(
+    <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl border border-red-500/30 bg-dark-card p-5 text-dark-text shadow-2xl shadow-black/50">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="mt-0.5 rounded-lg bg-red-950/40 p-2 text-red-300">
+            <AlertTriangle size={18} />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold">Delete Shipment</h3>
+            <p className="mt-1 text-sm text-dark-muted">
+              This will permanently delete <span className="font-semibold text-accent-blue">{shipment.tracking_id}</span>.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-5 rounded-lg border border-gray-700/50 bg-dark-bg/70 px-3 py-3 text-sm">
+          <p className="text-dark-text">{shipment.origin} → {shipment.destination}</p>
+          <p className="mt-1 text-xs capitalize text-dark-muted">Status: {shipment.status.replace('_', ' ')}</p>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isDeleting}
+            className="flex-1 rounded-lg border border-gray-700/50 px-4 py-2 text-sm font-semibold text-dark-text transition-colors hover:bg-gray-700/20 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-500 disabled:opacity-60"
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment, ownerEmail, onShipmentRiskUpdate, onDeleteShipment }) => {
   const [searchQuery, setSearchQuery] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [assessmentModalData, setAssessmentModalData] = useState(null)
+  const [pendingDeleteShipment, setPendingDeleteShipment] = useState(null)
+  const [isDeletingShipment, setIsDeletingShipment] = useState(false)
+
+  const closeAssessmentModal = () => setAssessmentModalData(null)
 
   const filteredShipments = shipments.filter(s =>
     s.tracking_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -225,6 +280,38 @@ const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment, 
   const handleAddSuccess = () => {
     // Trigger refresh if needed
   }
+
+  const handleDeleteShipment = (trackingId) => {
+    if (assessmentModalData?.shipment?.tracking_id === trackingId || assessmentModalData?.assessment?.tracking_id === trackingId) {
+      setAssessmentModalData(null)
+    }
+    onDeleteShipment?.(trackingId)
+  }
+
+  const handleDeleteRequest = (shipment) => {
+    setPendingDeleteShipment(shipment)
+  }
+
+  const closeDeleteModal = () => {
+    if (isDeletingShipment) return
+    setPendingDeleteShipment(null)
+  }
+
+  const confirmDeleteShipment = async () => {
+    if (!pendingDeleteShipment?.tracking_id || isDeletingShipment) return
+
+    setIsDeletingShipment(true)
+    try {
+      await shipmentAPI.delete(pendingDeleteShipment.tracking_id, ownerEmail)
+      handleDeleteShipment(pendingDeleteShipment.tracking_id)
+      setPendingDeleteShipment(null)
+    } catch (err) {
+      console.error('Failed to delete shipment:', err)
+    } finally {
+      setIsDeletingShipment(false)
+    }
+  }
+
 
   return (
     <div className="flex flex-col h-full bg-dark-card rounded-lg animate-fade-in">
@@ -263,6 +350,10 @@ const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment, 
               onSelect={() => onSelectShipment(shipment)}
               isSelected={selectedShipment?.id === shipment.id}
               ownerEmail={ownerEmail}
+              onShipmentRiskUpdate={onShipmentRiskUpdate}
+              onAssessmentReady={setAssessmentModalData}
+              onDeleteRequest={handleDeleteRequest}
+              isDeleting={isDeletingShipment && pendingDeleteShipment?.tracking_id === shipment.tracking_id}
             />
           ))
         )}
@@ -286,6 +377,13 @@ const ShipmentList = ({ shipments, loading, onSelectShipment, selectedShipment, 
         onSuccess={handleAddSuccess}
         ownerEmail={ownerEmail}
       />
+      <DeleteShipmentModal
+        shipment={pendingDeleteShipment}
+        isDeleting={isDeletingShipment}
+        onCancel={closeDeleteModal}
+        onConfirm={confirmDeleteShipment}
+      />
+      <RiskAssessmentModal data={assessmentModalData} onClose={closeAssessmentModal} />
     </div>
   )
 }

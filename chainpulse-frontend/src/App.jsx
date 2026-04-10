@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { Clock3, BadgeCheck } from 'lucide-react'
+import { Clock3, BadgeCheck, Siren, XCircle } from 'lucide-react'
 import ShipmentMap from './components/Map/ShipmentMap'
 import StatsBar from './components/Dashboard/StatsBar'
 import DisruptionFeed from './components/Dashboard/DisruptionFeed'
 import ShipmentList from './components/Shipments/ShipmentList'
+import RiskAssessmentModal from './components/Shipments/RiskAssessmentModal'
 import AlertPanel from './components/Alerts/AlertPanel'
 import ToastStack from './components/Alerts/ToastStack'
 import DisruptionSimulator from './components/Simulator/DisruptionSimulator'
 import { useShipments } from './hooks/useShipments'
 import { shipmentAPI } from './services/api'
+import { disruptionAPI } from './services/api'
+import { predictionAPI } from './services/api'
 import { useAuth } from './auth/AuthProvider'
 import { 
   initSocket, 
@@ -16,6 +19,7 @@ import {
   onShipmentUpdate, 
   onRiskAssessment, 
   onNewDisruption, 
+  onDisruptionCleared,
   onAlert 
 } from './services/socket'
 
@@ -101,6 +105,10 @@ function App({ onLogout }) {
   ])
   const [alerts, setAlerts] = useState(initialAlerts)
   const [toasts, setToasts] = useState([])
+  const [activeSimulation, setActiveSimulation] = useState(null)
+  const [activeAffectedShipments, setActiveAffectedShipments] = useState([])
+  const [isCancellingDisruption, setIsCancellingDisruption] = useState(false)
+  const [assessmentModalData, setAssessmentModalData] = useState(null)
 
   const createDemoDetourRoutes = (currentRoutes) => {
     if (!currentRoutes || currentRoutes.length === 0) {
@@ -246,6 +254,11 @@ function App({ onLogout }) {
   }
 
   const handleTriggerSuccess = (responseData) => {
+    if (responseData?.disruption) {
+      setActiveSimulation(responseData.disruption)
+      setActiveAffectedShipments(responseData.affected_shipments || [])
+    }
+
     const firstAffectedTrackingId = responseData?.affected_shipments?.[0]?.tracking_id
     if (!firstAffectedTrackingId) return
 
@@ -266,6 +279,92 @@ function App({ onLogout }) {
 
   const handleDemoReroute = () => {
     setRoutes((currentRoutes) => createDemoDetourRoutes(currentRoutes))
+  }
+
+  const handleDeleteShipment = (trackingId) => {
+    setShipments((prev) => prev.filter((shipment) => shipment.tracking_id !== trackingId))
+    setActiveAffectedShipments((prev) => prev.filter((shipment) => shipment.tracking_id !== trackingId))
+
+    setSelectedShipment((prev) => {
+      if (!prev || prev.tracking_id !== trackingId) return prev
+      setRoutes(null)
+      return null
+    })
+
+    setAssessmentModalData((prev) => {
+      if (!prev) return prev
+      const modalTrackingId = prev.assessment?.tracking_id || prev.shipment?.tracking_id
+      return modalTrackingId === trackingId ? null : prev
+    })
+  }
+
+  const openRiskAssessmentForTrackingId = async (trackingId) => {
+    if (!trackingId) return
+
+    const shipment = shipments.find((item) => item.tracking_id === trackingId)
+    if (shipment) {
+      setSelectedShipment(shipment)
+    }
+
+    try {
+      const response = await predictionAPI.assess(trackingId, ownerEmail)
+      setAssessmentModalData({
+        shipment: shipment || { tracking_id: trackingId },
+        assessment: response.data,
+      })
+    } catch (error) {
+      console.error('Failed to assess risk from disruption panel:', error)
+    }
+  }
+
+  const applyShipmentRestores = (restoredShipments) => {
+    if (!restoredShipments?.length) return
+
+    setShipments((prevShipments) =>
+      prevShipments.map((shipment) => {
+        const restored = restoredShipments.find((item) => item.id === shipment.id)
+        if (!restored) return shipment
+        return {
+          ...shipment,
+          status: restored.status,
+          risk_score: restored.risk_score,
+          current_lat: restored.current_lat,
+          current_lon: restored.current_lon,
+        }
+      }),
+    )
+
+    setSelectedShipment((prevSelected) => {
+      if (!prevSelected) return prevSelected
+      const restored = restoredShipments.find((item) => item.id === prevSelected.id)
+      if (!restored) return prevSelected
+      return {
+        ...prevSelected,
+        status: restored.status,
+        risk_score: restored.risk_score,
+        current_lat: restored.current_lat,
+        current_lon: restored.current_lon,
+      }
+    })
+  }
+
+  const handleCancelSimulation = async () => {
+    if (!activeSimulation?.id || isCancellingDisruption) return
+
+    setIsCancellingDisruption(true)
+    try {
+      const response = await disruptionAPI.cancel(activeSimulation.id)
+      const restoredShipments = response?.data?.restored_shipments || []
+      applyShipmentRestores(restoredShipments)
+
+      setDisruptions((prev) => prev.filter((item) => item.id !== activeSimulation.id))
+      setActiveSimulation(null)
+      setActiveAffectedShipments([])
+    } catch (error) {
+      console.error('Failed to cancel disruption:', error)
+    } finally {
+      setIsCancellingDisruption(false)
+    }
   }
 
   // Initialize socket connection
@@ -387,6 +486,19 @@ function App({ onLogout }) {
     return unsubscribe
   }, [])
 
+  useEffect(() => {
+    const unsubscribe = onDisruptionCleared((data) => {
+      setDisruptions((prev) => prev.filter((item) => item.id !== data.id))
+      setActiveSimulation((prev) => (prev?.id === data.id ? null : prev))
+      setActiveAffectedShipments((prev) => {
+        if (activeSimulation?.id !== data.id) return prev
+        return []
+      })
+    })
+
+    return unsubscribe
+  }, [activeSimulation?.id])
+
   // Listen for alerts
   useEffect(() => {
     const unsubscribe = onAlert((data) => {
@@ -471,6 +583,52 @@ function App({ onLogout }) {
         <section className="space-y-4 min-w-0">
           <StatsBar ownerEmail={ownerEmail} />
 
+          {activeSimulation && (
+            <div className="animate-fade-in-up rounded-lg border border-red-500/30 bg-red-950/20 p-4" style={{ animationDelay: '40ms' }}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Siren size={18} className="text-accent-red" />
+                  <div>
+                    <p className="text-sm font-semibold text-dark-text">Affected Shipments</p>
+                    <p className="text-xs text-dark-muted">
+                      {activeSimulation.location} • {activeSimulation.severity} • {activeAffectedShipments.length} affected
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelSimulation}
+                  disabled={isCancellingDisruption}
+                  className="inline-flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-950/30 px-3 py-2 text-xs font-semibold text-red-200 transition-colors hover:bg-red-950/50 disabled:opacity-60"
+                >
+                  <XCircle size={14} />
+                  {isCancellingDisruption ? 'Cancelling...' : 'Cancel Disruption'}
+                </button>
+              </div>
+
+              {activeAffectedShipments.length ? (
+                <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
+                  {activeAffectedShipments.map((shipment) => (
+                    <button
+                      key={shipment.id}
+                      type="button"
+                      onClick={() => openRiskAssessmentForTrackingId(shipment.tracking_id)}
+                      className="w-full rounded-lg border border-gray-700/50 bg-dark-bg/70 px-3 py-2 text-left transition-colors hover:bg-dark-bg"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-accent-blue">{shipment.tracking_id}</span>
+                        <span className="text-xs text-accent-red">{(Number(shipment.risk_score || 0) * 100).toFixed(0)}%</span>
+                      </div>
+                      <p className="mt-1 text-xs capitalize text-dark-muted">Status: {shipment.status.replace('_', ' ')}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-dark-muted">No shipments are currently impacted by this disruption.</p>
+              )}
+            </div>
+          )}
+
           <div className="space-y-4">
             <div className="h-[64vh] min-h-[520px] animate-fade-in-up" style={{ animationDelay: '80ms' }}>
               <ShipmentMap
@@ -511,6 +669,7 @@ function App({ onLogout }) {
               onSelectShipment={setSelectedShipment}
               selectedShipment={selectedShipment}
               ownerEmail={ownerEmail}
+              onDeleteShipment={handleDeleteShipment}
             />
           </div>
 
@@ -537,6 +696,15 @@ function App({ onLogout }) {
         onLocationPick={setSimulatorLocation}
         onTriggered={handleTriggerSuccess}
         onDemoReroute={handleDemoReroute}
+        activeSimulation={activeSimulation}
+        activeAffectedShipments={activeAffectedShipments}
+        onCancelDisruption={handleCancelSimulation}
+        isCancellingDisruption={isCancellingDisruption}
+      />
+
+      <RiskAssessmentModal
+        data={assessmentModalData}
+        onClose={() => setAssessmentModalData(null)}
       />
 
       <ToastStack toasts={toasts} onDismiss={removeToast} />

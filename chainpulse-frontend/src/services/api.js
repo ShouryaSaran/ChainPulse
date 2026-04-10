@@ -26,6 +26,7 @@ export const predictionAPI = {
 
 export const disruptionAPI = {
   simulate: (payload) => api.post('/api/disruptions/simulate', payload),
+  cancel: (disruptionId) => api.post(`/api/disruptions/${disruptionId}/cancel`),
 }
 
 export const alertAPI = {

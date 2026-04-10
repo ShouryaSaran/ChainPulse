@@ -97,6 +97,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 # Track previous risk scores for alert detection
 previous_risk_scores = {}
 last_disruption_time = datetime.now()
+simulated_disruption_snapshots: dict[str, list[dict]] = {}
 
 
 class SimulateDisruptionRequest(BaseModel):
@@ -322,11 +323,19 @@ async def simulate_disruption(payload: SimulateDisruptionRequest):
 
         affected_shipments = []
         boost = _severity_to_risk_boost(payload.severity)
+        snapshots: list[dict] = []
 
         for shipment in shipments:
             previous_score = shipment.risk_score
             distance = calculate_distance(payload.lat, payload.lon, shipment.current_lat, shipment.current_lon)
             if distance <= payload.affected_radius_km:
+                snapshots.append(
+                    {
+                        "id": shipment.id,
+                        "risk_score": previous_score,
+                        "status": shipment.status,
+                    }
+                )
                 proximity_factor = max(0.25, 1 - (distance / max(payload.affected_radius_km, 1)))
                 new_risk = min(1.0, previous_score + boost * proximity_factor)
                 new_status = "at_risk" if new_risk >= 0.7 else shipment.status
@@ -377,6 +386,8 @@ async def simulate_disruption(payload: SimulateDisruptionRequest):
 
         await session.commit()
 
+        simulated_disruption_snapshots[disruption.id] = snapshots
+
         disruption_payload = {
             "id": disruption.id,
             "type": disruption.disruption_type,
@@ -396,6 +407,62 @@ async def simulate_disruption(payload: SimulateDisruptionRequest):
         "message": f"Disruption triggered! {len(affected_shipments)} shipments affected",
         "affected_shipments": affected_shipments,
         "disruption": disruption_payload,
+    }
+
+
+@api_app.post("/api/disruptions/{disruption_id}/cancel")
+async def cancel_simulated_disruption(disruption_id: str):
+    """Cancel a simulated disruption, restore affected shipments, and remove disruption zone."""
+    snapshots = simulated_disruption_snapshots.get(disruption_id, [])
+
+    async with AsyncSessionLocal() as session:
+        disruption_result = await session.execute(select(Disruption).where(Disruption.id == disruption_id))
+        disruption = disruption_result.scalar_one_or_none()
+        if not disruption:
+            raise HTTPException(status_code=404, detail="Disruption not found")
+
+        restored_shipments = []
+        for snapshot in snapshots:
+            shipment_result = await session.execute(select(Shipment).where(Shipment.id == snapshot["id"]))
+            shipment = shipment_result.scalar_one_or_none()
+            if not shipment:
+                continue
+
+            shipment.risk_score = snapshot["risk_score"]
+            shipment.status = snapshot["status"]
+
+            restored_payload = {
+                "id": shipment.id,
+                "tracking_id": shipment.tracking_id,
+                "current_lat": shipment.current_lat,
+                "current_lon": shipment.current_lon,
+                "risk_score": shipment.risk_score,
+                "status": shipment.status,
+            }
+            restored_shipments.append(restored_payload)
+
+        await session.delete(disruption)
+        await session.commit()
+
+    simulated_disruption_snapshots.pop(disruption_id, None)
+
+    for shipment_payload in restored_shipments:
+        await sio.emit("shipment_update", shipment_payload)
+        await sio.emit(
+            "risk_assessment",
+            {
+                "tracking_id": shipment_payload["tracking_id"],
+                "risk_score": shipment_payload["risk_score"],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    await sio.emit("disruption_cleared", {"id": disruption_id})
+
+    return {
+        "message": f"Disruption {disruption_id} cancelled and system restored",
+        "restored_shipments": restored_shipments,
+        "cleared_disruption_id": disruption_id,
     }
 
 

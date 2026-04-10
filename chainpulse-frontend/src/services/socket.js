@@ -69,6 +69,12 @@ export const onNewDisruption = (callback) => {
   return () => s.off('new_disruption', callback)
 }
 
+export const onDisruptionCleared = (callback) => {
+  const s = getSocket()
+  s.on('disruption_cleared', callback)
+  return () => s.off('disruption_cleared', callback)
+}
+
 // Event: Alerts for risk threshold crossing
 export const onAlert = (callback) => {
   const s = getSocket()
@@ -95,6 +101,7 @@ export default {
   onShipmentUpdate,
   onRiskAssessment,
   onNewDisruption,
+  onDisruptionCleared,
   onAlert,
   onDisruptionAlert,
   emitShipmentTracking

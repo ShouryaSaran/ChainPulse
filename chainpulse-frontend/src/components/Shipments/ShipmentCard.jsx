@@ -1,10 +1,20 @@
 import React, { useEffect, useState } from 'react'
-import { ArrowRight, Calendar, Zap } from 'lucide-react'
+import { ArrowRight, Calendar, Trash2, Zap } from 'lucide-react'
 import { predictionAPI } from '../../services/api'
 
-const ShipmentCard = ({ shipment, onSelect, isSelected, index = 0, ownerEmail }) => {
+const ShipmentCard = ({
+  shipment,
+  onSelect,
+  isSelected,
+  index = 0,
+  ownerEmail,
+  onAssessmentReady,
+  onDeleteRequest,
+  isDeleting = false,
+}) => {
   const [assessing, setAssessing] = useState(false)
   const [barReady, setBarReady] = useState(false)
+  const isDelivered = shipment.status === 'delivered'
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setBarReady(true))
@@ -50,15 +60,25 @@ const ShipmentCard = ({ shipment, onSelect, isSelected, index = 0, ownerEmail })
 
   const handleAssessRisk = async (e) => {
     e.stopPropagation()
+    if (isDelivered) return
     setAssessing(true)
     try {
-      await predictionAPI.assess(shipment.tracking_id, ownerEmail)
-      // Risk assessment completed
+      const response = await predictionAPI.assess(shipment.tracking_id, ownerEmail)
+      onAssessmentReady?.({
+        shipment,
+        assessment: response.data,
+      })
     } catch (err) {
       console.error('Failed to assess risk:', err)
     } finally {
       setAssessing(false)
     }
+  }
+
+  const handleDelete = (e) => {
+    e.stopPropagation()
+    if (isDeleting) return
+    onDeleteRequest?.(shipment)
   }
 
   const formatDate = (dateStr) => {
@@ -119,15 +139,25 @@ const ShipmentCard = ({ shipment, onSelect, isSelected, index = 0, ownerEmail })
         </div>
       </div>
 
-      {/* Assess Risk Button */}
-      <button
-        onClick={handleAssessRisk}
-        disabled={assessing}
-        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-900/30 text-accent-blue rounded-lg text-xs font-semibold hover:bg-blue-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <Zap size={14} />
-        {assessing ? 'Assessing...' : 'Assess Risk'}
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={handleAssessRisk}
+          disabled={assessing || isDelivered}
+          className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-900/30 text-accent-blue rounded-lg text-xs font-semibold hover:bg-blue-900/50 transition-colors disabled:cursor-not-allowed disabled:bg-gray-800/60 disabled:text-dark-muted"
+        >
+          <Zap size={14} />
+          {isDelivered ? 'Delivered' : (assessing ? 'Assessing...' : 'Assess Risk')}
+        </button>
+
+        <button
+          onClick={handleDelete}
+          disabled={isDeleting}
+          className="flex items-center justify-center gap-2 px-3 py-2 bg-red-950/30 text-red-300 rounded-lg text-xs font-semibold hover:bg-red-950/50 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Trash2 size={14} />
+          {isDeleting ? 'Deleting...' : 'Delete'}
+        </button>
+      </div>
     </div>
   )
 }

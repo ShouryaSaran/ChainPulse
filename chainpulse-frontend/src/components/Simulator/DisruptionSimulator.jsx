@@ -40,6 +40,10 @@ const DisruptionSimulator = ({
   onLocationPick,
   onTriggered,
   onDemoReroute,
+  activeSimulation,
+  activeAffectedShipments,
+  onCancelDisruption,
+  isCancellingDisruption,
 }) => {
   const [form, setForm] = useState({
     disruption_type: 'weather_storm',
@@ -342,6 +346,22 @@ const DisruptionSimulator = ({
             >
               <AlertTriangle size={18} className="text-accent-amber" />
               <span>{demoRunning ? 'Demo Running...' : '🎬 Demo Mode'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onCancelDisruption}
+              disabled={!activeSimulation || isCancellingDisruption}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/40 bg-red-950/20 px-4 py-3 text-sm font-semibold text-red-200 transition-colors hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw size={18} />
+              <span>
+                {isCancellingDisruption
+                  ? 'Cancelling disruption...'
+                  : activeSimulation
+                    ? `Cancel Active Disruption (${activeAffectedShipments?.length || 0})`
+                    : 'No Active Disruption'}
+              </span>
             </button>
           </div>
 

@@ -6,52 +6,66 @@ MODEL_DIR = Path(__file__).parent
 MODEL_PATH = MODEL_DIR / "model.pkl"
 SCALER_PATH = MODEL_DIR / "scaler.pkl"
 
-# Load model and scaler on import
-try:
+FEATURE_ORDER = [
+    "Days for shipment (scheduled)",
+    "Order Item Quantity",
+    "Product Price",
+    "Order Item Discount Rate",
+    "Benefit per order",
+    "Sales per customer",
+    "shipping_mode_numeric",
+]
+
+model = None
+scaler = None
+_artifact_mtime = None
+
+
+def _load_artifacts(force: bool = False) -> None:
+    """Load or reload the model artifacts when the files change."""
+    global model, scaler, _artifact_mtime
+
+    try:
+        current_mtime = max(MODEL_PATH.stat().st_mtime, SCALER_PATH.stat().st_mtime)
+    except FileNotFoundError:
+        model = None
+        scaler = None
+        _artifact_mtime = None
+        return
+
+    if not force and _artifact_mtime == current_mtime and model is not None and scaler is not None:
+        return
+
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
-except FileNotFoundError:
-    model = None
-    scaler = None
+    _artifact_mtime = current_mtime
+
+
+_load_artifacts(force=True)
 
 
 def predict_risk(features: dict) -> float:
     """
-    Predict disruption risk score from feature dict.
+    Predict delivery delay risk score from DataCo-style features.
     
     Expected features:
-    - wind_speed_kmh
-    - precipitation_mm
-    - visibility_km
-    - news_sentiment_score
-    - news_disruption_keywords_count
-    - port_congestion_index
-    - cargo_type_encoded
-    - days_since_last_disruption
-    - route_distance_km
-    - season
+    - Days for shipment (scheduled)
+    - Order Item Quantity
+    - Product Price
+    - Order Item Discount Rate
+    - Benefit per order
+    - Sales per customer
+    - shipping_mode_numeric
     
     Returns risk score 0.0 to 1.0
     """
+    _load_artifacts()
+
     if model is None or scaler is None:
         return 0.0
 
-    feature_order = [
-        "wind_speed_kmh",
-        "precipitation_mm",
-        "visibility_km",
-        "news_sentiment_score",
-        "news_disruption_keywords_count",
-        "port_congestion_index",
-        "cargo_type_encoded",
-        "days_since_last_disruption",
-        "route_distance_km",
-        "season",
-    ]
-
-    # Extract features in order
-    feature_values = [features.get(f, 0.0) for f in feature_order]
-    feature_values = [[feature_values]]
+    feature_values = [features.get(f, 0.0) for f in FEATURE_ORDER]
+    feature_values = [feature_values]
 
     # Scale features
     scaled_features = scaler.transform(feature_values)

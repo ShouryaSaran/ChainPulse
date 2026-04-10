@@ -12,6 +12,7 @@ from app.models.schemas import ShipmentCreate, ShipmentResponse
 
 router = APIRouter()
 DEFAULT_OWNER_EMAIL = "demo@chainpulse.local"
+DELIVERED_RETENTION_DAYS = 2
 
 
 class StatusUpdate(BaseModel):
@@ -83,6 +84,25 @@ def _generate_route_waypoints(
 
     waypoints.append([dest_lat, dest_lon])
     return waypoints
+
+
+async def _cleanup_expired_delivered_shipments(db, owner_email: str) -> None:
+    """Delete delivered shipments older than the configured retention window."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=DELIVERED_RETENTION_DAYS)
+    result = await db.execute(
+        select(Shipment).where(
+            Shipment.owner_email == owner_email,
+            Shipment.status == "delivered",
+            Shipment.eta <= cutoff,
+        )
+    )
+    expired_shipments = result.scalars().all()
+    if not expired_shipments:
+        return
+
+    for shipment in expired_shipments:
+        await db.delete(shipment)
+    await db.commit()
 
 
 async def seed_database(owner_email: str = DEFAULT_OWNER_EMAIL) -> None:
@@ -195,6 +215,7 @@ async def list_shipments(owner_email: str | None = Query(default=None), db=Depen
     """Get shipments for the current owner, seeding demo data on first access."""
     # owner_email is required - default to demo if not provided
     effective_owner_email = owner_email or DEFAULT_OWNER_EMAIL
+    await _cleanup_expired_delivered_shipments(db, effective_owner_email)
     
     result = await db.execute(select(Shipment).where(Shipment.owner_email == effective_owner_email))
     shipments = result.scalars().all()
@@ -272,11 +293,16 @@ async def update_shipment_status(tracking_id: str, payload: StatusUpdate, owner_
 
     if payload.status is not None:
         shipment.status = payload.status
+        if payload.status == "delivered":
+            shipment.risk_score = 0.0
+            shipment.current_lat = shipment.dest_lat
+            shipment.current_lon = shipment.dest_lon
+            shipment.eta = datetime.now(timezone.utc)
     if payload.current_lat is not None:
         shipment.current_lat = payload.current_lat
     if payload.current_lon is not None:
         shipment.current_lon = payload.current_lon
-    if payload.risk_score is not None:
+    if payload.risk_score is not None and shipment.status != "delivered":
         shipment.risk_score = payload.risk_score
 
     await db.commit()
@@ -295,7 +321,7 @@ async def delete_shipment(tracking_id: str, owner_email: str | None = Query(defa
     if not shipment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shipment not found")
 
-    db.delete(shipment)
+    await db.delete(shipment)
     await db.commit()
 
 
