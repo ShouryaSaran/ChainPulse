@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
@@ -98,6 +98,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 previous_risk_scores = {}
 last_disruption_time = datetime.now()
 simulated_disruption_snapshots: dict[str, list[dict]] = {}
+EXPIRED_DISRUPTION_RETENTION_HOURS = 24
 
 
 class SimulateDisruptionRequest(BaseModel):
@@ -285,6 +286,27 @@ async def emit_random_disruptions():
                 last_disruption_time = datetime.now()
     except Exception as e:
         print(f"Error emitting disruptions: {e}")
+
+
+async def cleanup_expired_disruptions() -> None:
+    """Delete disruptions after retention window and clear stale snapshots/events."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=EXPIRED_DISRUPTION_RETENTION_HOURS)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Disruption).where(Disruption.expires_at <= cutoff))
+        expired_disruptions = result.scalars().all()
+        if not expired_disruptions:
+            return
+
+        expired_ids = [disruption.id for disruption in expired_disruptions]
+        for disruption in expired_disruptions:
+            await session.delete(disruption)
+
+        await session.commit()
+
+    for disruption_id in expired_ids:
+        simulated_disruption_snapshots.pop(disruption_id, None)
+        await sio.emit("disruption_cleared", {"id": disruption_id})
 
 
 def _severity_to_risk_boost(severity: str) -> float:
@@ -495,6 +517,7 @@ async def background_tasks():
     task_5s = None
     task_15s = None
     task_30s = None
+    task_cleanup = None
     
     try:
         while True:
@@ -509,6 +532,10 @@ async def background_tasks():
             # Every 30 seconds: emit random disruptions (runs 6 times per 5s cycle)
             if task_30s is None or task_30s.done():
                 task_30s = asyncio.create_task(emit_random_disruptions())
+
+            # Periodically prune expired disruptions from persistent storage.
+            if task_cleanup is None or task_cleanup.done():
+                task_cleanup = asyncio.create_task(cleanup_expired_disruptions())
             
             await asyncio.sleep(5)
     except Exception as e:
@@ -518,6 +545,7 @@ async def background_tasks():
 @api_app.on_event("startup")
 async def start_background_tasks():
     """Start background tasks on app startup."""
+    await cleanup_expired_disruptions()
     asyncio.create_task(background_tasks())
 
 

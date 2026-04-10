@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { isProfileComplete } from '../auth/profileCompletion'
 
 const AuthCallbackPage = () => {
   const navigate = useNavigate()
@@ -46,7 +47,7 @@ const AuthCallbackPage = () => {
 
       if (isMounted) {
         setMessage('Sign-in successful. Redirecting...')
-        navigate('/dashboard', { replace: true })
+        navigate(isProfileComplete(data.session) ? '/dashboard' : '/complete-profile', { replace: true })
       }
     }
 

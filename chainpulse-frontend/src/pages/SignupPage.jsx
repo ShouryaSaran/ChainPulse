@@ -63,6 +63,7 @@ const SignupPage = () => {
           company_name: form.companyName,
           country: form.country,
           role: form.role,
+            profile_completed: true,
         },
       },
     })

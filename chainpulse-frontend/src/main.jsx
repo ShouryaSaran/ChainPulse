@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage.jsx'
 import SignupPage from './pages/SignupPage.jsx'
 import VerifyEmailPage from './pages/VerifyEmailPage.jsx'
 import AuthCallbackPage from './pages/AuthCallbackPage.jsx'
+import CompleteProfilePage from './pages/CompleteProfilePage.jsx'
 import { AuthProvider } from './auth/AuthProvider.jsx'
 import ProtectedRoute from './auth/ProtectedRoute.jsx'
 import { supabase } from './supabaseClient.js'
@@ -47,6 +48,14 @@ const AppRoutes = () => {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route
+          path="/complete-profile"
+          element={
+            <ProtectedRoute>
+              <CompleteProfilePage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/dashboard"
           element={

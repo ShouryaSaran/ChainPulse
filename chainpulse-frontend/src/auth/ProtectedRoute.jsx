@@ -1,6 +1,7 @@
 import React from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './AuthProvider'
+import { isProfileComplete } from './profileCompletion'
 
 const ProtectedRoute = ({ children }) => {
   const { session, loading } = useAuth()
@@ -17,7 +18,11 @@ const ProtectedRoute = ({ children }) => {
   }
 
   if (!session) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    return <Navigate to="/" replace state={{ from: location.pathname }} />
+  }
+
+  if (!isProfileComplete(session) && location.pathname !== '/complete-profile') {
+    return <Navigate to="/complete-profile" replace state={{ from: location.pathname }} />
   }
 
   return children
