@@ -52,10 +52,10 @@ copy .env.example .env
 Suggested .env values for local Docker setup:
 
 ```env
-DATABASE_URL=postgresql://chainpulse:chainpulse123@postgres:5432/chainpulse
-REDIS_URL=redis://redis:6379/0
-NEWS_API_KEY=
-OPENROUTE_API_KEY=
+DATABASE_URL="Your Database URL"
+REDIS_URL="REDIS URL"
+NEWS_API_KEY="YOUR NEWS API KEY"
+OPENROUTE_API_KEY="YOUR OPNEROUTE API KEY"
 DEBUG=true
 ```
 
